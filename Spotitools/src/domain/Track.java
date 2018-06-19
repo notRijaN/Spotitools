@@ -61,5 +61,13 @@ public class Track {
 			return "spotify:track:" + id;
 		}
 	}
+	
+	public boolean isRealTrack() {
+		if (id.equals("ad") || id.equals("nosong")) {
+			return false;
+		}else{
+			return true;
+		}
+	}
 
 }

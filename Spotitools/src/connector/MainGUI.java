@@ -34,9 +34,18 @@ public class MainGUI extends JFrame {
 	
 	private JButton btnConnect;
 	private JLabel lblConnect;
-	private JTextField textFieldConnect;
-	private boolean firstClick;
+	private JTextField textFieldConnect;	
+	
+	private JTextField textFieldCurrent;
+	private JLabel lblCurrent;
+	
 	private boolean connected;
+	
+	private int state;
+	/*	0 => not connected
+	 * 	1 => idle
+	 * 	2 => playing
+	 */
 	
 	
 	
@@ -50,12 +59,40 @@ public class MainGUI extends JFrame {
 				try {
 					MainGUI frame = new MainGUI();
 					frame.setVisible(true);
+					frame.startCheck();
 				} catch (Exception e) {
 					e.printStackTrace();
 				}
 			}
+
 		});
 	}
+	
+
+	private void startCheck() {
+		while (true) {
+    		Track current = SpotifyConnector.getPlayingTrack();
+    		int timeleft = SpotifyConnector.getTimeLeft();
+    		textFieldCurrent.setText(current.toString());
+    		
+    		if (timeleft < 0) {
+        		waitFor(10000);
+    		}
+    		else if(timeleft < 12000){
+    			if (timeleft < 2000) {
+//        			onSongEnd();
+    				waitFor(2000);
+    			}
+    			waitFor(500);
+    		}
+    		else {
+        		waitFor(10000);
+    		}
+		}
+    	
+		
+	}
+	
 
 	/**
 	 * Create the frame.
@@ -69,7 +106,7 @@ public class MainGUI extends JFrame {
 		contentPane.setLayout(null);
 		
 		lblPlaylist = new JLabel("Playlists");
-		lblPlaylist.setBounds(238, 172, 82, 14);
+		lblPlaylist.setBounds(238, 111, 82, 14);
 		contentPane.add(lblPlaylist);
 		
 		btnConnect = new JButton("Connect!");
@@ -87,25 +124,25 @@ public class MainGUI extends JFrame {
 		contentPane.add(lblConnect);
 		
 		comboBoxPlaylist = new JComboBox<Playlist>();
-		comboBoxPlaylist.setBounds(238, 197, 119, 20);
+		comboBoxPlaylist.setBounds(238, 136, 119, 20);
 		contentPane.add(comboBoxPlaylist);
 		
-		JButton btnPlaylist = new JButton("Play");
+		btnPlaylist = new JButton("Play");
 		btnPlaylist.addMouseListener(new MouseAdapter() {
 			@Override
 			public void mouseClicked(MouseEvent e) {
 				clickOnPlaylist();
 			}
 		});
-		btnPlaylist.setBounds(238, 228, 89, 23);
+		btnPlaylist.setBounds(238, 167, 89, 23);
 		contentPane.add(btnPlaylist);
 		
 		checkboxShuffle = new JCheckBox("Shuffle");
-		checkboxShuffle.setBounds(363, 196, 97, 23);
+		checkboxShuffle.setBounds(363, 135, 97, 23);
 		contentPane.add(checkboxShuffle);
 		
 		textFieldQueue = new JTextField();
-		textFieldQueue.setBounds(10, 172, 171, 20);
+		textFieldQueue.setBounds(10, 111, 171, 20);
 		contentPane.add(textFieldQueue);
 		textFieldQueue.setColumns(10);
 		
@@ -116,7 +153,7 @@ public class MainGUI extends JFrame {
 				clickOnQueue();
 			}
 		});
-		btnQueue.setBounds(42, 203, 109, 23);
+		btnQueue.setBounds(42, 142, 109, 23);
 		contentPane.add(btnQueue);
 		
 		textFieldConnect = new JTextField();
@@ -124,31 +161,36 @@ public class MainGUI extends JFrame {
 		contentPane.add(textFieldConnect);
 		textFieldConnect.setColumns(10);
 		
+		lblCurrent = new JLabel("Currently playing:");
+		lblCurrent.setBounds(10, 216, 109, 14);
+		contentPane.add(lblCurrent);
 		
-		firstClick = true;
+		textFieldCurrent = new JTextField();
+		textFieldCurrent.setBounds(129, 213, 305, 20);
+		contentPane.add(textFieldCurrent);
+		textFieldCurrent.setColumns(10);
+		
+		boolean init = SpotifyConnector.init();
+		if (!init) {
+			JFrame connect = new OauthGUI(this);
+			connect.setVisible(true);
+			this.setEnabled(false);
+			
+		}
+		
 	}
 	
 	
 	
 	
 	private void clickOnConnect() {
-		if (firstClick) {
-			lblConnect.setText("After connecting. Write down the URI of the redirected page! DO NOT SHOW PUBLICLY");
-			SpotifyConnector.getOauth1();
-			firstClick = false;
-		}else {
-			if (SpotifyConnector.getOauth2(textFieldConnect.getText())) {
 				connected = true;
 				List<Playlist> list = SpotifyConnector.getPlaylists();
 				for (Playlist playlist : list) {
 					comboBoxPlaylist.addItem(playlist);
 				}
 				lblConnect.setText("Success!");
-			}else {
-				lblConnect.setText("Puto noob!");
-				firstClick = true;
-			}
-		}
+		
 		
 	}
 	
@@ -164,4 +206,16 @@ public class MainGUI extends JFrame {
 	}
 	
 	
+	
+	
+	
+	
+
+	private static void waitFor(int millis) {
+		try {
+			Thread.sleep(millis);
+		} catch (InterruptedException e) {
+			e.printStackTrace();
+		}
+    }
 }

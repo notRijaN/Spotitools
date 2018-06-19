@@ -3,15 +3,20 @@ package connector;
 import java.awt.Desktop;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.net.URI;
 import java.net.URL;
-import java.net.URLConnection;
 import java.util.ArrayList;
+import java.util.Base64;
+import java.util.Calendar;
 import java.util.List;
 import java.util.Random;
+import java.util.Scanner;
 
 import javax.net.ssl.HttpsURLConnection;
 
@@ -25,7 +30,9 @@ public class SpotifyConnector {
 	private static String QUEUE_ID = "1OArlu09nNXISAjQTSPAlK";
 	
 	private static String OAUTH = null;
-	private static int expire;		//	TODO: auth renewal
+	private static String REFRESH = null;
+	private static String AUTH = "1da95bd1adf240aaa20ace0656f1c44a:8745082898384867932f8a133dec0acc";
+	private static long EXPIRE;		//	TODO: auth renewal
 	private static boolean isConnected = false;
 	
 	private static String currentPlaylist = "33nQ8OrHQuIHi3pdPo36rW";
@@ -41,46 +48,133 @@ public class SpotifyConnector {
 	private static Track currentSong;
 	private static int timeleft;
 	
+	
 	//	TODO: get error codes and interpret for this app.
+	
+	//	TODO: check expired oauths
+	
+	/**
+	 * 
+	 * @return whether it was initialized
+	 */
+	public static boolean init() {
+		File data = new File("res/info.data");
+		if (!data.exists()) {
+			data.mkdirs();
+			return false;
+		}else {
 
-	//	TODO: warn user not to show publicly!
+			Scanner sc = null;
+			try {
+				sc = new Scanner(data);
+			} catch (FileNotFoundException e) {
+				e.printStackTrace();
+			}
+			
+			USER_ID = sc.nextLine().split("=")[1];
+			OAUTH = sc.nextLine().split("=")[1];
+			EXPIRE = Integer.parseInt(sc.nextLine().split("=")[1]);
+			REFRESH = sc.nextLine().split("=")[1];
+			QUEUE_ID = sc.nextLine().split("=")[1];
+			
+			sc.close();
+			return true;
+		}
+		
+	}
+	
+	
+	public static void close() {
+
+		try {
+			File data = new File("res/info.data");
+			FileWriter writer = new FileWriter(data);
+			writer.write("init=true");
+			writer.write("user_id=" + USER_ID);
+			writer.write("oauth=" + OAUTH);
+			writer.write("expire=" + EXPIRE);
+			writer.write("refresh=" + REFRESH);
+			writer.write("queue_id=" + QUEUE_ID);
+			writer.close();
+			
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+		
+		
+	}
+	
+	
 	public static void getOauth1() {
-		String s = "https://accounts.spotify.com/en/authorize?client_id=1da95bd1adf240aaa20ace0656f1c44a&redirect_uri=https:%2F%2Fwww.google.com&response_type=token";
+		String s = "https://accounts.spotify.com/en/authorize?client_id=1da95bd1adf240aaa20ace0656f1c44a&redirect_uri=https:%2F%2Fwww.google.com&response_type=code";
 		Desktop desktop = Desktop.getDesktop();
 		try {
 			desktop.browse(URI.create(s));
 		} catch (IOException e1) {
 			e1.printStackTrace();
-		}			
-	}
-	
-	public static boolean getOauth2(String URI) {
-		while (true) {
-			
-			if (URI.equals("cancel")) {
-				return false;
-			}
-			
-			try {
-				int authBeginIndex = URI.indexOf("=") + 1;
-				int authEndIndex = URI.indexOf("&", authBeginIndex);
-				OAUTH = "Bearer " + URI.substring(authBeginIndex, authEndIndex);
-				
-				int expBeginIndex = URI.indexOf("=", URI.indexOf("&", authEndIndex + 1)) + 1;
-				expire = Integer.parseInt(URI.substring(expBeginIndex));
-				isConnected = true;
-				return true;
-			}
-			
-			catch (Exception e) {
-				e.printStackTrace();
-				System.out.println("NOPE");
-			}
 		}
-			
 	}
 	
-	private static URLConnection openConnection(String urlString, String mode, String data) {
+
+	public static boolean getOauth2(String uri) {
+		
+		try {
+			
+			int authBeginIndex = uri.indexOf("=") + 1;
+			String code = uri.substring(authBeginIndex);
+			
+			//	Connection
+			URL url = new URL("https://accounts.spotify.com/api/token");
+			HttpsURLConnection uc = (HttpsURLConnection) url.openConnection();
+	        
+			//	Properties
+	        uc.setRequestMethod("POST");
+	        uc.setRequestProperty("X-Requested-With", "Curl");
+	        uc.setRequestProperty("Accept", "application/json");
+	        uc.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
+	        uc.setRequestProperty("Authorization", "Basic " + Base64.getEncoder().encodeToString(AUTH.getBytes()));
+	        uc.setDoOutput(true);
+
+	        //	Data
+	        String data = "grant_type=authorization_code&code=" +code + "&redirect_uri=https:%2F%2Fwww.google.com";
+	        BufferedWriter writer = new BufferedWriter(new PrintWriter(uc.getOutputStream()));
+	        writer.write(data);
+	        writer.flush();
+	        
+	        
+	        BufferedReader r = new BufferedReader(new InputStreamReader(uc.getInputStream()));
+	        String line = r.readLine();
+        	String[] data1 = line.split(",");
+        	
+        	int oauthBegin = data1[0].indexOf(":") + 2;
+        	int oauthEnd = data1[0].length() - 1;
+        	OAUTH = data1[0].substring(oauthBegin, oauthEnd);
+        	
+        	int expireBegin = data1[2].indexOf(":") + 1;
+        	EXPIRE = Calendar.getInstance().getTimeInMillis() + Integer.parseInt(data1[2].substring(expireBegin)) * 1000;
+
+        	int refreshBegin = data1[3].indexOf(":") + 2;
+        	int refreshEnd = data1[3].length() - 1;
+        	REFRESH = data1[3].substring(refreshBegin, refreshEnd);
+	        
+	        
+	        return true;
+		}catch (Exception e) {
+			e.printStackTrace();
+			return false;
+		}
+		
+		
+	}
+	
+	
+	
+	
+	
+	
+	
+	
+	private static BufferedReader openConnection(String urlString, String mode, String data) {
 		
 		HttpsURLConnection uc = null;
 		try{
@@ -98,7 +192,7 @@ public class SpotifyConnector {
 	        uc.setRequestProperty("X-Requested-With", "Curl");
 	        uc.setRequestProperty("Accept", "application/json");
 	        uc.setRequestProperty("Content-Type", "application/json");
-	        uc.setRequestProperty("Authorization", OAUTH);
+	        uc.setRequestProperty("Authorization", "Bearer " + OAUTH);
 	        uc.setDoOutput(true);
 	        
 	        //	Data (body)
@@ -107,29 +201,28 @@ public class SpotifyConnector {
 		        writer.write(data);
 		        writer.flush();
 	        }
-	        
-	        return uc;
-		}catch (IOException e) {
-			e.printStackTrace();
-			BufferedReader input;
-	        String line;
-			try {
-				input = new BufferedReader(new InputStreamReader(uc.getErrorStream()));
-				while ((line = input.readLine()) != null) {
-					System.out.println(line);
+
+	        //	Get Response Code
+			int code = uc.getResponseCode();
+			if (code >= 400) {
+				System.out.println(uc.getResponseMessage());
+				boolean retry = tryToFixError(code);
+				if (retry) {
+					openConnection(urlString, mode, data);
 				}
-			} catch (IOException e1) {
-				e1.printStackTrace();
 			}
+	        
+	        return new BufferedReader(new InputStreamReader(uc.getInputStream()));
+	        
+		}catch (Exception e) {
+			e.printStackTrace();
 			return null;
 		}
 	}
 	
 	
-	
-	
-	
-	
+
+
 	/*
 	 * 
 	 * 		PLAYER
@@ -138,65 +231,50 @@ public class SpotifyConnector {
 	
 	
 	
-	
 	public static Track getPlayingTrack() {
 		
 		try {
 	        
-	        URLConnection uc = openConnection("https://api.spotify.com/v1/me/player/currently-playing", "GET", null);
-	        BufferedReader input = new BufferedReader(new InputStreamReader(uc.getInputStream()));
+			BufferedReader input = openConnection("https://api.spotify.com/v1/me/player/currently-playing", "GET", null);
 	        
-	        // read this input
 	        String line, artist = null, album = null, song = null, id = null;
-	        int current = -1, total = 0;
+	        
+        	//	Ad
 	        while ((line = input.readLine()) != null) {
-	        	if (line.contains("progress_ms")) {
-	        		current = Integer.parseInt(line.substring(line.indexOf(" ", line.indexOf(":")) + 1, line.indexOf(",")));
-	        		break;
+	        	if (line.contains("\"item\"")) {
+	        		if (line.contains("null")) {
+	        			return new Track("ad");
+	        		}else {
+	        			break;
+	        		}
 	        	}
 	        }
 	        
-        	//	No song
-	        if (current == -1) {
-	        	System.out.println("No song playing");
-	        	timeleft = -1;
-	        }
-	        
 	        while ((line = input.readLine()) != null) {
-	        	if (line.contains("name")) {
+	        	if (line.contains("\"name\"")) {
 	        		//	Artist
 	        		artist = removeQuotes(getInfoFromLine(line, ","));
 	        		break;
 	        	}
 	        }
 
-        	//Ad
-	        if (artist == null) {
-	        	System.out.println("Ad");
-	        	timeleft = -2;
-	        }
 	        
 	        while ((line = input.readLine()) != null) {
-	        	if (line.contains("name")) {
+	        	if (line.contains("\"name\"")) {
 	        		//	Album
 	        		album = removeQuotes(getInfoFromLine(line, ","));
 	        		break;
 	        	}
 	        }
 	        while ((line = input.readLine()) != null) {
-	        	if (line.contains("duration_ms")) {
-	        		total = Integer.parseInt(getInfoFromLine(line, ","));
-	        		break;
-	        	}
-	        }
-	        while ((line = input.readLine()) != null) {
 	        	if (line.contains("\"id\"")) {
+	        		//	ID
 	        		id = removeQuotes(getInfoFromLine(line, ","));
 	        		break;
 	        	}
 	        }
 	        while ((line = input.readLine()) != null) {
-	        	if (line.contains("name")) {
+	        	if (line.contains("\"name\"")) {
 	        		//	Song
 	        		song = removeQuotes(getInfoFromLine(line, ","));
 	        		break;
@@ -204,11 +282,8 @@ public class SpotifyConnector {
 	        }
 	        
 	        
+	        System.out.println("\"" + song + "\" - " + artist + " (" + album + ")");
 	        
-	        float progress = (float) current / total * 100;
-	        System.out.println("\"" + song + "\" - " + artist + " (" + album + "). Progress: " + progress + "%");
-	        
-	        timeleft = total - current;
 	        return new Track(id, song, album, artist);
 		}
 		catch (IOException e) {
@@ -219,22 +294,66 @@ public class SpotifyConnector {
 		
 	}
 	
+	/**
+	 * If no real track is playing return -1;
+	 * 
+	 * @return
+	 */
+	public static int getTimeLeft() {
+		
+		if (!getPlayingTrack().isRealTrack()) {
+			return -1;
+		}
+		
+		try {
+	        
+			BufferedReader input = openConnection("https://api.spotify.com/v1/me/player/currently-playing", "GET", null);
+	        
+	        // read this input
+	        String line;
+	        int current = -1, total = 0;
+	        while ((line = input.readLine()) != null) {
+	        	if (line.contains("\"progress_ms\"")) {
+	        		current = Integer.parseInt(line.substring(line.indexOf(" ", line.indexOf(":")) + 1, line.indexOf(",")));
+	        		break;
+	        	}
+	        }
+
+	        while ((line = input.readLine()) != null) {
+	        	if (line.contains("\"duration_ms\"")) {
+	        		total = Integer.parseInt(getInfoFromLine(line, ","));
+	        		break;
+	        	}
+	        }
+	        
+	        float progress = (float) current / total * 100;
+	        System.out.println("Progress: " + progress + "%");
+	        
+	        return total - current;
+		}
+		catch (IOException e) {
+			e.printStackTrace();
+			return -3;
+		}
+		
+	}
+	
 
 	public static void skipSong() {
-		URLConnection uc = openConnection("https://api.spotify.com/v1/me/player/next", "POST", null);
-		logOutput(uc);
+		BufferedReader reader = openConnection("https://api.spotify.com/v1/me/player/next", "POST", null);
+		disposeOutput(reader);
 	}
 	
 	
 	public static void resume() {
-		URLConnection uc = openConnection("https://api.spotify.com/v1/me/player/play", "PUT", null);
-		logOutput(uc);
+		BufferedReader reader = openConnection("https://api.spotify.com/v1/me/player/play", "PUT", null);
+		disposeOutput(reader);
 	}
 	
 	
 	public static void pause() {
-		URLConnection uc = openConnection("https://api.spotify.com/v1/me/player/pause", "PUT", null);
-		logOutput(uc);
+		BufferedReader reader = openConnection("https://api.spotify.com/v1/me/player/pause", "PUT", null);
+		disposeOutput(reader);
 	}
 	
 	
@@ -249,8 +368,7 @@ public class SpotifyConnector {
 	
 	public static List<Playlist> getPlaylists(){
 		try {
-			URLConnection uc = openConnection("https://api.spotify.com/v1/me/playlists?fields=items(name,id,tracks(total))", "GET", null);
-			BufferedReader input = new BufferedReader(new InputStreamReader(uc.getInputStream()));
+			BufferedReader input = openConnection("https://api.spotify.com/v1/me/playlists?fields=items(name,id,tracks(total))", "GET", null);
 	        
 			List<Playlist> list = new ArrayList<Playlist>();
 			String line = input.readLine(), id, name;
@@ -303,13 +421,11 @@ public class SpotifyConnector {
 
 	
 	private static int getSongAmount(String playlistID) {
-		URLConnection uc = openConnection("https://api.spotify.com/v1/users/" + USER_ID + "/playlists/" + playlistID + "/tracks?fields=total", "GET", null);
-        BufferedReader input;
+		BufferedReader input = openConnection("https://api.spotify.com/v1/users/" + USER_ID + "/playlists/" + playlistID + "/tracks?fields=total", "GET", null);
         String line;
         int totalTracks = -1;	//Error code
         
 		try {
-			input = new BufferedReader(new InputStreamReader(uc.getInputStream()));
 			while ((line = input.readLine()) != null) {
 				if (line.contains("total")) {
 					totalTracks = Integer.parseInt(line.substring(line.indexOf(" ", line.indexOf(":")) + 1));
@@ -326,8 +442,7 @@ public class SpotifyConnector {
 
 	private static Tracklist getSongsFromPlaylist(int amount, int offset, String playlistID) {
 		try{
-			URLConnection uc = openConnection("https://api.spotify.com/v1/users/" + USER_ID + "/playlists/" + playlistID + "/tracks?fields=items(track(id))&limit=" + amount + "&offset=" + offset, "GET", null);
-			BufferedReader input = new BufferedReader(new InputStreamReader(uc.getInputStream()));
+			BufferedReader input = openConnection("https://api.spotify.com/v1/users/" + USER_ID + "/playlists/" + playlistID + "/tracks?fields=items(track(id))&limit=" + amount + "&offset=" + offset, "GET", null);
 	        
 			String line;
 			String[] ids = new String[amount];
@@ -355,9 +470,9 @@ public class SpotifyConnector {
     			"  \"range_start\": " + trackIndex + ",\r\n" + 
     			"  \"range_length\": " + trackAmount + ",\r\n" + 
     			"  \"insert_before\": " + place + "\r\n" + 
-    			"}";
-		URLConnection uc = openConnection("https://api.spotify.com/v1/users/" + USER_ID + "/playlists/" + QUEUE_ID + "/tracks", "PUT", data);
-		logOutput(uc);
+    			"}\r\n";
+		BufferedReader input = openConnection("https://api.spotify.com/v1/users/" + USER_ID + "/playlists/" + QUEUE_ID + "/tracks", "PUT", data);
+		disposeOutput(input);
 
 	}
 	
@@ -378,8 +493,9 @@ public class SpotifyConnector {
 	
 	private static void addSongsToQueue(Tracklist tracks) {
 		String uri = tracks.toUri(true);
-		URLConnection uc = openConnection("https://api.spotify.com/v1/users/" + USER_ID + "/playlists/" + QUEUE_ID + "/tracks?position=" + queueTop + "&uris=" + uri, "POST", null);
-	    logOutput(uc);
+		BufferedReader input = openConnection("https://api.spotify.com/v1/users/" + USER_ID + "/playlists/" + QUEUE_ID + "/tracks?position=" + queueTop + "&uris=" + uri, "POST", null);
+	    disposeOutput(input);
+	    
 		queueTop += tracks.amount();
 	    System.out.println("Added " + tracks.amount() + " songs.");
 	      
@@ -414,8 +530,8 @@ public class SpotifyConnector {
 		System.out.println("Removing songs...");
 //		System.out.println(data);
 		
-		URLConnection uc = openConnection("https://api.spotify.com/v1/users/" + USER_ID + "/playlists/" + QUEUE_ID + "/tracks", "DELETE", data);
-		logOutput(uc);
+		BufferedReader input = openConnection("https://api.spotify.com/v1/users/" + USER_ID + "/playlists/" + QUEUE_ID + "/tracks", "DELETE", data);
+		disposeOutput(input);
 		
 		queueTop -= trackAmount;
 	}
@@ -433,10 +549,8 @@ public class SpotifyConnector {
 	 */
 	
 	
-	private static void logOutput(URLConnection uc) {
-        BufferedReader input;
+	private static void disposeOutput(BufferedReader input) {
 		try {
-			input = new BufferedReader(new InputStreamReader(uc.getInputStream()));
 	        String line;
 	        while ((line = input.readLine()) != null) {
 //	        	System.out.println(line);
@@ -463,12 +577,70 @@ public class SpotifyConnector {
 	}
 	
 	
+	private static boolean tryToFixError(int code) {
+		switch (code) {
+		case 401:
+			//refresh oauth
+			refreshOauth();
+			return true;
+		case 400:
+			//	Wrong syntax (shouldn't happen if not for wrong URIs I suppose)
+			return false;
+		default:
+			return false;
+		}
+	}
 	
 	
 	
 	
 	
-	
+	private static void refreshOauth() {
+		
+		if (REFRESH == null) {
+			
+		}
+		else {
+			try {
+				URL url = new URL("https://accounts.spotify.com/api/token");
+				HttpsURLConnection uc = (HttpsURLConnection) url.openConnection();
+		        
+				//	Properties
+		        uc.setRequestMethod("POST");
+		        uc.setRequestProperty("X-Requested-With", "Curl");
+		        uc.setRequestProperty("Accept", "application/json");
+		        uc.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
+		        uc.setRequestProperty("Authorization", "Basic " + Base64.getEncoder().encodeToString(AUTH.getBytes()));
+		        uc.setDoOutput(true);
+
+		        //	Data
+		        String data = "grant_type=refresh_token&refresh_token=" + REFRESH;
+		        BufferedWriter writer = new BufferedWriter(new PrintWriter(uc.getOutputStream()));
+		        writer.write(data);
+		        writer.flush();
+		        
+		        
+		        BufferedReader r = new BufferedReader(new InputStreamReader(uc.getInputStream()));
+		        String line = r.readLine();
+	        	String[] data1 = line.split(",");
+	        	
+	        	int oauthBegin = data1[0].indexOf(":") + 2;
+	        	int oauthEnd = data1[0].length() - 1;
+	        	OAUTH = data1[0].substring(oauthBegin, oauthEnd);
+	        	
+	        	int expireBegin = data1[2].indexOf(":") + 1;
+	        	EXPIRE = Calendar.getInstance().getTimeInMillis() + Integer.parseInt(data1[2].substring(expireBegin)) * 1000;
+	        	
+			}catch (Exception e) {
+				e.printStackTrace();
+			}
+//				
+		}
+		
+	}
+
+
+
 	private static Tracklist getSongsFromPlaylistDefault() {
 		Tracklist list = new Tracklist(FETCH_SIZE);
 		
@@ -531,14 +703,18 @@ public class SpotifyConnector {
 
 	public static void onSongEnd() {
 		
+		
 		Track check = getPlayingTrack();
-		//	TODO: fix when no song or ad before (probably add another boolean)
-		while (currentSong == null || currentSong.same(check)) {
+		while (currentSong.same(check)) {
 			waitFor(400);
 			check = getPlayingTrack();
 		}
 		currentSong = check;
 
+		//	If ad
+		if (!currentSong.isRealTrack()) {
+			return;
+		}
 		
 		if (current == priority) {
 			priority++;
@@ -565,16 +741,14 @@ public class SpotifyConnector {
     	
     	//	TODO: flush queue
     	
-    	getPlaylists();
-    	
-//    	playPlaylist("2nfGhtAZh52FfbBEpwyr8v", false);
-//		waitFor(1000);
-//    	Tracklist ids = getSongsFromPlaylist(1, 6, "33nQ8OrHQuIHi3pdPo36rW");
-//    	addSongsToPriorityQueue(ids);
+//    	getOauth();
 //    	
-//    	
+//    	refreshOauth();
+  	
+//    	timeleft = 20000;
 //    	while (true) {
 //    		getPlayingTrack();
+//    		getTimeLeft();
 //    		if (timeleft < 0) {
 //        		waitFor(10000);
 //    		}
