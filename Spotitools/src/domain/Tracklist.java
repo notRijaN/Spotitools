@@ -18,6 +18,12 @@ public class Tracklist {
 		top = 0;
 	}
 	
+	public Tracklist(Track t) {
+		tracks = new Track[1];
+		tracks[0] = t;
+		top = 1;
+	}
+	
 	public void add(Track t) {
 		tracks[top] = t;
 		top++;

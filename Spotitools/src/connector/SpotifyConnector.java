@@ -1,16 +1,21 @@
 package connector;
 
+import java.awt.Desktop;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
+import java.net.URI;
 import java.net.URL;
 import java.net.URLConnection;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Random;
 
 import javax.net.ssl.HttpsURLConnection;
 
+import domain.Playlist;
 import domain.Track;
 import domain.Tracklist;
 
@@ -18,6 +23,10 @@ public class SpotifyConnector {
 	
 	private static String USER_ID = "rijan_";
 	private static String QUEUE_ID = "1OArlu09nNXISAjQTSPAlK";
+	
+	private static String OAUTH = null;
+	private static int expire;		//	TODO: auth renewal
+	private static boolean isConnected = false;
 	
 	private static String currentPlaylist = "33nQ8OrHQuIHi3pdPo36rW";
 	private static int FETCH_SIZE = 3;
@@ -31,7 +40,45 @@ public class SpotifyConnector {
 	
 	private static Track currentSong;
 	private static int timeleft;
+	
+	//	TODO: get error codes and interpret for this app.
 
+	//	TODO: warn user not to show publicly!
+	public static void getOauth1() {
+		String s = "https://accounts.spotify.com/en/authorize?client_id=1da95bd1adf240aaa20ace0656f1c44a&redirect_uri=https:%2F%2Fwww.google.com&response_type=token";
+		Desktop desktop = Desktop.getDesktop();
+		try {
+			desktop.browse(URI.create(s));
+		} catch (IOException e1) {
+			e1.printStackTrace();
+		}			
+	}
+	
+	public static boolean getOauth2(String URI) {
+		while (true) {
+			
+			if (URI.equals("cancel")) {
+				return false;
+			}
+			
+			try {
+				int authBeginIndex = URI.indexOf("=") + 1;
+				int authEndIndex = URI.indexOf("&", authBeginIndex);
+				OAUTH = "Bearer " + URI.substring(authBeginIndex, authEndIndex);
+				
+				int expBeginIndex = URI.indexOf("=", URI.indexOf("&", authEndIndex + 1)) + 1;
+				expire = Integer.parseInt(URI.substring(expBeginIndex));
+				isConnected = true;
+				return true;
+			}
+			
+			catch (Exception e) {
+				e.printStackTrace();
+				System.out.println("NOPE");
+			}
+		}
+			
+	}
 	
 	private static URLConnection openConnection(String urlString, String mode, String data) {
 		
@@ -51,7 +98,7 @@ public class SpotifyConnector {
 	        uc.setRequestProperty("X-Requested-With", "Curl");
 	        uc.setRequestProperty("Accept", "application/json");
 	        uc.setRequestProperty("Content-Type", "application/json");
-	        uc.setRequestProperty("Authorization", "Bearer BQBOHVbYNzdOOF3WfXfLtHmcAJbSJZUsm1qznBwKU7dzwZrBN2x1YMbgeEbovw6g9aftgi1aMZ-uOv8FA-DAB3N_azGV5cAxeak6C-z_w60e8uglc-5bTR-XEZSilwF-jafh3_1gSBOTb4ki9syyeN1lM74bSnLLFMqkGZzMJwlEYPfN5fQ2C8nxahGCqvQ5EER74FsN_CGVlslDKAupf9znA1AmjUjVt7mozkCb638XZLuC2gJYesA_9di7PU_NwxCqINxiRfrX4mIozGRjq_ncPsQ");
+	        uc.setRequestProperty("Authorization", OAUTH);
 	        uc.setDoOutput(true);
 	        
 	        //	Data (body)
@@ -200,7 +247,59 @@ public class SpotifyConnector {
 	 * 
 	 */
 	
-	
+	public static List<Playlist> getPlaylists(){
+		try {
+			URLConnection uc = openConnection("https://api.spotify.com/v1/me/playlists?fields=items(name,id,tracks(total))", "GET", null);
+			BufferedReader input = new BufferedReader(new InputStreamReader(uc.getInputStream()));
+	        
+			List<Playlist> list = new ArrayList<Playlist>();
+			String line = input.readLine(), id, name;
+			int trackAmount;
+			boolean end = false;
+			
+	        while (true) {
+	        	
+	        	while (!line.contains("\"id\"")) {
+	        		//	End here
+	        		if (line.contains("\"limit\"")) {
+	        			end = true;
+	        			break;
+	        		}
+	        		line = input.readLine();
+	        	}
+	        	
+	        	if (end) {
+	        		break;
+	        	}
+	        	id = removeQuotes(getInfoFromLine(line, ","));
+	        	
+	        	
+	        	while (!line.contains("name")) {
+	        		line = input.readLine();
+		        }
+	        	name = removeQuotes(getInfoFromLine(line, ","));
+	        	if (name.equals("queue")) {
+	        		line = input.readLine();
+	        		continue;
+	        	}
+	        	
+	        	
+	        	while (!line.contains("total")) {
+	        		line = input.readLine();
+		        }
+	        	trackAmount = Integer.parseInt(getInfoFromLine(line, null));
+	        	list.add(new Playlist(id, name, trackAmount));
+	        	System.out.println(id + "," + name + "," + trackAmount);
+        		line = input.readLine();
+	        	
+	        }
+	        
+	        return list;
+		} catch(Exception e) {
+			e.printStackTrace();
+		}
+        return null;
+	}
 
 	
 	private static int getSongAmount(String playlistID) {
@@ -348,7 +447,6 @@ public class SpotifyConnector {
 		}
 	}
 	
-	
 	private static String getInfoFromLine(String line, String endingCharacter) {
 		int startingIndex = line.indexOf(":") + 2;
 		if (endingCharacter == null) {
@@ -360,10 +458,10 @@ public class SpotifyConnector {
 		}
 	}
 	
-	
 	private static String removeQuotes(String string) {
 		return string.substring(1, string.length() - 1);
 	}
+	
 	
 	
 	
@@ -388,7 +486,6 @@ public class SpotifyConnector {
 		return list;
 	}
 	
-	
 	public static void playPlaylist(String playlistID, boolean shuffle) {
 
 		//	take out all the remaining from the old playlist (those in the queue must remain)
@@ -411,7 +508,6 @@ public class SpotifyConnector {
 		currentSong = tracks.get(0);	
 	}
 	
-	
 	private static int[] createOrder(int size, boolean shuffle) {
 		
 		order = new int[size];
@@ -433,10 +529,6 @@ public class SpotifyConnector {
 		return order;
 	}
 
-
-
-
-	
 	public static void onSongEnd() {
 		
 		Track check = getPlayingTrack();
@@ -465,31 +557,37 @@ public class SpotifyConnector {
 	}
 	
 
+	
+	
+	
+	
     public static void main(String args[]) {
     	
     	//	TODO: flush queue
     	
-    	playPlaylist("2nfGhtAZh52FfbBEpwyr8v", false);
-		waitFor(1000);
-    	Tracklist ids = getSongsFromPlaylist(1, 6, "33nQ8OrHQuIHi3pdPo36rW");
-    	addSongsToPriorityQueue(ids);
+    	getPlaylists();
     	
-    	
-    	while (true) {
-    		getPlayingTrack();
-    		if (timeleft < 0) {
-        		waitFor(10000);
-    		}
-    		else if(timeleft < 12000){
-    			if (timeleft < 2000) {
-        			onSongEnd();
-    			}
-    			waitFor(500);
-    		}
-    		else {
-        		waitFor(10000);
-    		}
-    	}
+//    	playPlaylist("2nfGhtAZh52FfbBEpwyr8v", false);
+//		waitFor(1000);
+//    	Tracklist ids = getSongsFromPlaylist(1, 6, "33nQ8OrHQuIHi3pdPo36rW");
+//    	addSongsToPriorityQueue(ids);
+//    	
+//    	
+//    	while (true) {
+//    		getPlayingTrack();
+//    		if (timeleft < 0) {
+//        		waitFor(10000);
+//    		}
+//    		else if(timeleft < 12000){
+//    			if (timeleft < 2000) {
+//        			onSongEnd();
+//    			}
+//    			waitFor(500);
+//    		}
+//    		else {
+//        		waitFor(10000);
+//    		}
+//    	}
 
     }
     
