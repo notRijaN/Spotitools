@@ -26,16 +26,15 @@ import domain.Tracklist;
 
 public class SpotifyConnector {
 	
-	private static String USER_ID = "rijan_";
 	private static String QUEUE_ID = "1OArlu09nNXISAjQTSPAlK";
 	
 	private static String OAUTH = null;
 	private static String REFRESH = null;
 	private static String AUTH = "1da95bd1adf240aaa20ace0656f1c44a:8745082898384867932f8a133dec0acc";
 	private static long EXPIRE;		//	TODO: auth renewal
-	private static boolean isConnected = false;
+	private static boolean isConnected = false;	//	TODO:	check this
 	
-	private static String currentPlaylist = "33nQ8OrHQuIHi3pdPo36rW";
+	private static String currentPlaylist = null;
 	private static int FETCH_SIZE = 3;
 	private static Tracklist lastFetch;
 	private static int playlistTop = 0;
@@ -60,7 +59,6 @@ public class SpotifyConnector {
 	public static boolean init() {
 		File data = new File("res/info.data");
 		if (!data.exists()) {
-			data.mkdirs();
 			return false;
 		}else {
 
@@ -71,9 +69,8 @@ public class SpotifyConnector {
 				e.printStackTrace();
 			}
 			
-			USER_ID = sc.nextLine().split("=")[1];
 			OAUTH = sc.nextLine().split("=")[1];
-			EXPIRE = Integer.parseInt(sc.nextLine().split("=")[1]);
+			EXPIRE = Long.parseLong(sc.nextLine().split("=")[1]);
 			REFRESH = sc.nextLine().split("=")[1];
 			QUEUE_ID = sc.nextLine().split("=")[1];
 			
@@ -83,18 +80,19 @@ public class SpotifyConnector {
 		
 	}
 	
+	public static void setQueueId(String id) {
+		QUEUE_ID = id;
+	}
 	
-	public static void close() {
+	public static void save() {
 
 		try {
 			File data = new File("res/info.data");
 			FileWriter writer = new FileWriter(data);
-			writer.write("init=true");
-			writer.write("user_id=" + USER_ID);
-			writer.write("oauth=" + OAUTH);
-			writer.write("expire=" + EXPIRE);
-			writer.write("refresh=" + REFRESH);
-			writer.write("queue_id=" + QUEUE_ID);
+			writer.write("oauth=" + OAUTH + "\n");
+			writer.write("expire=" + EXPIRE + "\n");
+			writer.write("refresh=" + REFRESH + "\n");
+			writer.write("queue_id=" + QUEUE_ID + "\n");
 			writer.close();
 			
 		} catch (IOException e) {
@@ -104,9 +102,17 @@ public class SpotifyConnector {
 		
 	}
 	
+	public static void disconnect() {
+		new File("res/info.data").delete();
+		System.out.println("Disconnected!");
+	}
+	
+	
+
 	
 	public static void getOauth1() {
-		String s = "https://accounts.spotify.com/en/authorize?client_id=1da95bd1adf240aaa20ace0656f1c44a&redirect_uri=https:%2F%2Fwww.google.com&response_type=code";
+		String s = "https://accounts.spotify.com/en/authorize?client_id=1da95bd1adf240aaa20ace0656f1c44a&redirect_uri=https:%2F%2Fwww.google.com" +
+				"&response_type=code&scope=playlist-modify-public%20user-read-email";
 		Desktop desktop = Desktop.getDesktop();
 		try {
 			desktop.browse(URI.create(s));
@@ -115,7 +121,6 @@ public class SpotifyConnector {
 		}
 	}
 	
-
 	public static boolean getOauth2(String uri) {
 		
 		try {
@@ -156,6 +161,8 @@ public class SpotifyConnector {
         	int refreshBegin = data1[3].indexOf(":") + 2;
         	int refreshEnd = data1[3].length() - 1;
         	REFRESH = data1[3].substring(refreshBegin, refreshEnd);
+        	
+        	save();
 	        
 	        
 	        return true;
@@ -167,7 +174,43 @@ public class SpotifyConnector {
 		
 	}
 	
-	
+	private static void refreshOauth() {
+		
+		try {
+			URL url = new URL("https://accounts.spotify.com/api/token");
+			HttpsURLConnection uc = (HttpsURLConnection) url.openConnection();
+	        
+			//	Properties
+	        uc.setRequestMethod("POST");
+	        uc.setRequestProperty("X-Requested-With", "Curl");
+	        uc.setRequestProperty("Accept", "application/json");
+	        uc.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
+	        uc.setRequestProperty("Authorization", "Basic " + Base64.getEncoder().encodeToString(AUTH.getBytes()));
+	        uc.setDoOutput(true);
+
+	        //	Data
+	        String data = "grant_type=refresh_token&refresh_token=" + REFRESH;
+	        BufferedWriter writer = new BufferedWriter(new PrintWriter(uc.getOutputStream()));
+	        writer.write(data);
+	        writer.flush();
+	        
+	        
+	        BufferedReader r = new BufferedReader(new InputStreamReader(uc.getInputStream()));
+	        String line = r.readLine();
+        	String[] data1 = line.split(",");
+        	
+        	int oauthBegin = data1[0].indexOf(":") + 2;
+        	int oauthEnd = data1[0].length() - 1;
+        	OAUTH = data1[0].substring(oauthBegin, oauthEnd);
+        	
+        	int expireBegin = data1[2].indexOf(":") + 1;
+        	EXPIRE = Calendar.getInstance().getTimeInMillis() + Integer.parseInt(data1[2].substring(expireBegin)) * 1000;
+        	
+		}catch (Exception e) {
+			e.printStackTrace();
+		}
+		
+	}
 	
 	
 	
@@ -421,7 +464,7 @@ public class SpotifyConnector {
 
 	
 	private static int getSongAmount(String playlistID) {
-		BufferedReader input = openConnection("https://api.spotify.com/v1/users/" + USER_ID + "/playlists/" + playlistID + "/tracks?fields=total", "GET", null);
+		BufferedReader input = openConnection("https://api.spotify.com/v1/users/me/playlists/" + playlistID + "/tracks?fields=total", "GET", null);
         String line;
         int totalTracks = -1;	//Error code
         
@@ -442,7 +485,7 @@ public class SpotifyConnector {
 
 	private static Tracklist getSongsFromPlaylist(int amount, int offset, String playlistID) {
 		try{
-			BufferedReader input = openConnection("https://api.spotify.com/v1/users/" + USER_ID + "/playlists/" + playlistID + "/tracks?fields=items(track(id))&limit=" + amount + "&offset=" + offset, "GET", null);
+			BufferedReader input = openConnection("https://api.spotify.com/v1/users/me/playlists/" + playlistID + "/tracks?fields=items(track(id))&limit=" + amount + "&offset=" + offset, "GET", null);
 	        
 			String line;
 			String[] ids = new String[amount];
@@ -471,7 +514,7 @@ public class SpotifyConnector {
     			"  \"range_length\": " + trackAmount + ",\r\n" + 
     			"  \"insert_before\": " + place + "\r\n" + 
     			"}\r\n";
-		BufferedReader input = openConnection("https://api.spotify.com/v1/users/" + USER_ID + "/playlists/" + QUEUE_ID + "/tracks", "PUT", data);
+		BufferedReader input = openConnection("https://api.spotify.com/v1/users/me/playlists/" + QUEUE_ID + "/tracks", "PUT", data);
 		disposeOutput(input);
 
 	}
@@ -493,7 +536,7 @@ public class SpotifyConnector {
 	
 	private static void addSongsToQueue(Tracklist tracks) {
 		String uri = tracks.toUri(true);
-		BufferedReader input = openConnection("https://api.spotify.com/v1/users/" + USER_ID + "/playlists/" + QUEUE_ID + "/tracks?position=" + queueTop + "&uris=" + uri, "POST", null);
+		BufferedReader input = openConnection("https://api.spotify.com/v1/users/me/playlists/" + QUEUE_ID + "/tracks?position=" + queueTop + "&uris=" + uri, "POST", null);
 	    disposeOutput(input);
 	    
 		queueTop += tracks.amount();
@@ -530,7 +573,7 @@ public class SpotifyConnector {
 		System.out.println("Removing songs...");
 //		System.out.println(data);
 		
-		BufferedReader input = openConnection("https://api.spotify.com/v1/users/" + USER_ID + "/playlists/" + QUEUE_ID + "/tracks", "DELETE", data);
+		BufferedReader input = openConnection("https://api.spotify.com/v1/users/me/playlists/" + QUEUE_ID + "/tracks", "DELETE", data);
 		disposeOutput(input);
 		
 		queueTop -= trackAmount;
@@ -595,49 +638,7 @@ public class SpotifyConnector {
 	
 	
 	
-	private static void refreshOauth() {
-		
-		if (REFRESH == null) {
-			
-		}
-		else {
-			try {
-				URL url = new URL("https://accounts.spotify.com/api/token");
-				HttpsURLConnection uc = (HttpsURLConnection) url.openConnection();
-		        
-				//	Properties
-		        uc.setRequestMethod("POST");
-		        uc.setRequestProperty("X-Requested-With", "Curl");
-		        uc.setRequestProperty("Accept", "application/json");
-		        uc.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
-		        uc.setRequestProperty("Authorization", "Basic " + Base64.getEncoder().encodeToString(AUTH.getBytes()));
-		        uc.setDoOutput(true);
 
-		        //	Data
-		        String data = "grant_type=refresh_token&refresh_token=" + REFRESH;
-		        BufferedWriter writer = new BufferedWriter(new PrintWriter(uc.getOutputStream()));
-		        writer.write(data);
-		        writer.flush();
-		        
-		        
-		        BufferedReader r = new BufferedReader(new InputStreamReader(uc.getInputStream()));
-		        String line = r.readLine();
-	        	String[] data1 = line.split(",");
-	        	
-	        	int oauthBegin = data1[0].indexOf(":") + 2;
-	        	int oauthEnd = data1[0].length() - 1;
-	        	OAUTH = data1[0].substring(oauthBegin, oauthEnd);
-	        	
-	        	int expireBegin = data1[2].indexOf(":") + 1;
-	        	EXPIRE = Calendar.getInstance().getTimeInMillis() + Integer.parseInt(data1[2].substring(expireBegin)) * 1000;
-	        	
-			}catch (Exception e) {
-				e.printStackTrace();
-			}
-//				
-		}
-		
-	}
 
 
 

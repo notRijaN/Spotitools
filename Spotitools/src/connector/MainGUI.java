@@ -34,10 +34,13 @@ public class MainGUI extends JFrame {
 	
 	private JButton btnConnect;
 	private JLabel lblConnect;
-	private JTextField textFieldConnect;	
 	
 	private JTextField textFieldCurrent;
 	private JLabel lblCurrent;
+	
+
+	private JTextField textFieldQueueId;
+	private JButton btnQueueId;
 	
 	private boolean connected;
 	
@@ -59,7 +62,6 @@ public class MainGUI extends JFrame {
 				try {
 					MainGUI frame = new MainGUI();
 					frame.setVisible(true);
-					frame.startCheck();
 				} catch (Exception e) {
 					e.printStackTrace();
 				}
@@ -156,42 +158,69 @@ public class MainGUI extends JFrame {
 		btnQueue.setBounds(42, 142, 109, 23);
 		contentPane.add(btnQueue);
 		
-		textFieldConnect = new JTextField();
-		textFieldConnect.setBounds(10, 45, 483, 20);
-		contentPane.add(textFieldConnect);
-		textFieldConnect.setColumns(10);
-		
 		lblCurrent = new JLabel("Currently playing:");
 		lblCurrent.setBounds(10, 216, 109, 14);
 		contentPane.add(lblCurrent);
 		
+		//	TODO: this xD (get playback)
 		textFieldCurrent = new JTextField();
 		textFieldCurrent.setBounds(129, 213, 305, 20);
 		contentPane.add(textFieldCurrent);
 		textFieldCurrent.setColumns(10);
 		
-		boolean init = SpotifyConnector.init();
-		if (!init) {
-			JFrame connect = new OauthGUI(this);
-			connect.setVisible(true);
-			this.setEnabled(false);
-			
+		textFieldQueueId = new JTextField();
+		textFieldQueueId.setBounds(234, 12, 86, 20);
+		contentPane.add(textFieldQueueId);
+		textFieldQueueId.setColumns(10);
+		textFieldQueueId.setVisible(false);
+		
+		btnQueueId = new JButton("Set Queue id");
+		btnQueueId.setBounds(330, 11, 104, 23);
+		btnQueueId.setVisible(false);
+		contentPane.add(btnQueueId);
+		
+		connected = SpotifyConnector.init();
+		if (!connected) {
+			btnConnect.setText("Connect");
+			lblConnect.setText("Not connected");
+		}else {
+			populatePlaylistComboBox();
+			btnConnect.setText("Disconnect!");
+			lblConnect.setText("Connected");
 		}
+		setVisible(true);
+		
 		
 	}
 	
+	private void populatePlaylistComboBox() {
+		List<Playlist> list = SpotifyConnector.getPlaylists();
+		for (Playlist playlist : list) {
+			comboBoxPlaylist.addItem(playlist);
+		}
+	}
 	
+	
+	public void backFromLogin(boolean hasConnected) {
+		if (hasConnected) {
+			connected = true;
+			btnConnect.setText("Disconnect!");
+			lblConnect.setText("Connected");
+			populatePlaylistComboBox();
+		}
+	}
 	
 	
 	private void clickOnConnect() {
-				connected = true;
-				List<Playlist> list = SpotifyConnector.getPlaylists();
-				for (Playlist playlist : list) {
-					comboBoxPlaylist.addItem(playlist);
-				}
-				lblConnect.setText("Success!");
-		
-		
+		if (!connected) {
+			setEnabled(false);
+			new OauthGUI(this);
+		}else {
+			SpotifyConnector.disconnect();
+			connected = false;
+			btnConnect.setText("Connect");
+			lblConnect.setText("Not connected");
+		}
 	}
 	
 	
